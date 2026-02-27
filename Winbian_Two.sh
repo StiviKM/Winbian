@@ -25,14 +25,23 @@ color_echo() {
 
 ACTUAL_USER=$(logname 2>/dev/null || echo "$USER")
 ACTUAL_HOME=$(getent passwd "$ACTUAL_USER" | cut -d: -f6)
-WINBIAN_DIR="$ACTUAL_HOME/Winbian"
+
+# === Detect repo directory regardless of case (Winbian or winbian) ===
+if [ -d "$ACTUAL_HOME/Winbian" ]; then
+  WINBIAN_DIR="$ACTUAL_HOME/Winbian"
+elif [ -d "$ACTUAL_HOME/winbian" ]; then
+  WINBIAN_DIR="$ACTUAL_HOME/winbian"
+else
+  WINBIAN_DIR="$ACTUAL_HOME/Winbian"
+  log "WARNING: Could not find Winbian directory, defaulting to $WINBIAN_DIR"
+fi
 
 # === Request sudo once and keep it alive for the entire script ===
 color_echo "yellow" "🔑 Please enter your password once to authorize the setup:"
 sudo -v
 while true; do sudo -n true; sleep 60; done &
 SUDO_KEEPALIVE_PID=$!
-trap 'kill $SUDO_KEEPALIVE_PID 2>/dev/null || true; rm -f "$ACTUAL_HOME/.config/autostart/winbian_two.desktop"; cd "$ACTUAL_HOME"; rm -rf "$ACTUAL_HOME/Winbian"' EXIT
+trap 'kill $SUDO_KEEPALIVE_PID 2>/dev/null || true; rm -f "$ACTUAL_HOME/.config/autostart/winbian_two.desktop"; cd "$ACTUAL_HOME"; rm -rf "$WINBIAN_DIR"' EXIT
 
 log "Stage 2 started by user: $ACTUAL_USER"
 color_echo "blue" "🚀 Starting Winbian Stage 2..."
@@ -221,11 +230,12 @@ gsettings set org.gnome.desktop.screensaver idle-activation-enabled false
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 log "Sleep, hibernate, suspend disabled"
 
-# Set performance power profile using power-profiles-daemon
+# Set performance power profile
 color_echo "yellow" "Setting performance power profile..."
+sudo systemctl enable --now power-profiles-daemon 2>/dev/null || true
 if command -v powerprofilesctl &>/dev/null; then
   powerprofilesctl set performance 2>/dev/null \
-    && log "Power profile set to performance via powerprofilesctl" \
+    && log "Power profile set to performance" \
     || log "WARNING: Could not set performance power profile"
 else
   log "WARNING: powerprofilesctl not found"
