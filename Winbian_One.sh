@@ -151,6 +151,7 @@ color_echo "green" "✅ Firmware update step complete."
 log_section "Removing Bloatware"
 
 color_echo "yellow" "Removing unwanted pre-installed applications..."
+
 BLOAT_PACKAGES=(
   gnome-music
   gnome-boxes
@@ -173,6 +174,11 @@ BLOAT_PACKAGES=(
   gnome-weather
   rhythmbox
   yelp
+  evolution
+  file-roller
+  seahorse
+  shotwell
+  gnome-sound-recorder
 )
 
 for pkg in "${BLOAT_PACKAGES[@]}"; do
