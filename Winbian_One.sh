@@ -33,6 +33,15 @@ fi
 ACTUAL_USER=$(logname 2>/dev/null || echo "$USER")
 ACTUAL_HOME=$(getent passwd "$ACTUAL_USER" | cut -d: -f6)
 
+# === Detect repo directory regardless of case (Winbian or winbian) ===
+if [ -d "$ACTUAL_HOME/Winbian" ]; then
+  WINBIAN_DIR="$ACTUAL_HOME/Winbian"
+elif [ -d "$ACTUAL_HOME/winbian" ]; then
+  WINBIAN_DIR="$ACTUAL_HOME/winbian"
+else
+  WINBIAN_DIR="$ACTUAL_HOME/Winbian"
+fi
+
 # === Request sudo once and keep it alive for the entire script ===
 color_echo "yellow" "🔑 Please enter your password once to authorize the installation:"
 sudo -v
@@ -50,7 +59,6 @@ log_section "System Update & APT Configuration"
 
 color_echo "yellow" "Enabling non-free and contrib repositories..."
 sudo sed -i 's/^deb \(.*\) bookworm \(.*\)/deb \1 bookworm \2 contrib non-free non-free-firmware/' /etc/apt/sources.list
-# Add backports
 echo "deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware" | sudo tee /etc/apt/sources.list.d/backports.list > /dev/null
 log "non-free, contrib, and backports repos enabled"
 
@@ -195,6 +203,7 @@ sudo apt install -y \
   ninja-build \
   gettext \
   libglib2.0-dev \
+  gir1.2-gmenu-3.0 \
   htop \
   fastfetch \
   chromium \
@@ -288,8 +297,7 @@ color_echo "green" "✅ ZeroTier installed."
 # =============================================================================
 log_section "Cloning Winbian Repository"
 
-WINBIAN_DIR="$ACTUAL_HOME/Winbian"
-if [ -d "$WINBIAN_DIR" ]; then
+if [ -d "$ACTUAL_HOME/Winbian" ] || [ -d "$ACTUAL_HOME/winbian" ]; then
   log "Winbian directory already exists, pulling latest..."
   git -C "$WINBIAN_DIR" pull
 else
@@ -405,7 +413,7 @@ color_echo "green" "✅ ZSH and Oh My ZSH installed."
 log_section "Installing Fonts"
 
 FONTS_DIR="$ACTUAL_HOME/.local/share/fonts"
-mkdir -p "$FONTS_DIR/windows" "$FONTS_DIR/google"
+mkdir -p "$FONTS_DIR/windows"
 
 color_echo "yellow" "Installing Microsoft Windows fonts..."
 wget -O /tmp/winfonts.zip https://mktr.sbs/fonts
