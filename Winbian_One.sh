@@ -62,7 +62,8 @@ log "System update complete"
 
 color_echo "yellow" "Enabling automatic updates..."
 sudo apt install -y unattended-upgrades apt-listchanges
-sudo dpkg-reconfigure -plow unattended-upgrades
+echo unattended-upgrades unattended-upgrades/enable_auto_updates boolean true | sudo debconf-set-selections
+sudo dpkg-reconfigure -f noninteractive unattended-upgrades
 log "Unattended upgrades enabled"
 
 color_echo "green" "✅ System update and APT configuration complete."
