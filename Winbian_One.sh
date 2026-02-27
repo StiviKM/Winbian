@@ -131,8 +131,8 @@ log_section "Firmware Updates"
 color_echo "yellow" "Checking for firmware updates..."
 sudo apt install -y fwupd
 sudo fwupdmgr refresh --force || log "WARNING: fwupdmgr refresh failed"
-sudo fwupdmgr get-updates || log "INFO: No firmware updates available or fwupdmgr error"
-sudo fwupdmgr update -y || log "WARNING: Firmware update failed or not needed"
+sudo fwupdmgr get-updates --assume-yes || log "INFO: No firmware updates available or fwupdmgr error"
+sudo fwupdmgr update --assume-yes || log "WARNING: Firmware update failed or not needed"
 log "Firmware update step complete"
 
 color_echo "green" "✅ Firmware update step complete."
