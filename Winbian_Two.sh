@@ -36,6 +36,74 @@ else
   log "WARNING: Could not find Winbian directory, defaulting to $WINBIAN_DIR"
 fi
 
+# === ArcMenu helpers ===
+ARC_ICON_PATH="$ACTUAL_HOME/.arc_icon.png"
+ARC_MENU_SCHEMA="/org/gnome/shell/extensions/arcmenu"
+
+ensure_arcmenu_icon_asset() {
+  local repo_icon="$WINBIAN_DIR/.arc_icon.png"
+
+  if [ -f "$repo_icon" ]; then
+    cp -f "$repo_icon" "$ARC_ICON_PATH"
+    chmod 0644 "$ARC_ICON_PATH"
+    log "ArcMenu icon asset copied to $ARC_ICON_PATH"
+  elif [ -f "$ARC_ICON_PATH" ]; then
+    chmod 0644 "$ARC_ICON_PATH"
+    log "ArcMenu icon asset already present at $ARC_ICON_PATH"
+  else
+    log "WARNING: ArcMenu icon asset not found at $repo_icon or $ARC_ICON_PATH"
+  fi
+}
+
+apply_arcmenu_icon_settings() {
+  dconf write ${ARC_MENU_SCHEMA}/menu-button-icon "'Custom_Icon'"
+  dconf write ${ARC_MENU_SCHEMA}/custom-menu-button-icon "'${ARC_ICON_PATH}'"
+  dconf write ${ARC_MENU_SCHEMA}/custom-menu-button-icon-size 40.0
+}
+
+verify_arcmenu_icon_settings() {
+  local current_icon_mode current_icon_path current_icon_size
+  current_icon_mode=$(dconf read ${ARC_MENU_SCHEMA}/menu-button-icon 2>/dev/null || echo "<unreadable>")
+  current_icon_path=$(dconf read ${ARC_MENU_SCHEMA}/custom-menu-button-icon 2>/dev/null || echo "<unreadable>")
+  current_icon_size=$(dconf read ${ARC_MENU_SCHEMA}/custom-menu-button-icon-size 2>/dev/null || echo "<unreadable>")
+
+  log "ArcMenu icon mode: $current_icon_mode"
+  log "ArcMenu icon path: $current_icon_path"
+  log "ArcMenu icon size: $current_icon_size"
+
+  if [ "$current_icon_mode" = "'Custom_Icon'" ] \
+     && [ "$current_icon_path" = "'${ARC_ICON_PATH}'" ] \
+     && [ "$current_icon_size" = "40.0" ]; then
+    log "ArcMenu icon settings verified successfully"
+    return 0
+  fi
+
+  return 1
+}
+
+force_arcmenu_icon_configuration() {
+  local attempt max_attempts
+  max_attempts=8
+
+  ensure_arcmenu_icon_asset
+
+  for attempt in $(seq 1 "$max_attempts"); do
+    apply_arcmenu_icon_settings
+    sleep 1
+
+    if verify_arcmenu_icon_settings; then
+      log "ArcMenu icon configuration locked in on attempt $attempt"
+      return 0
+    fi
+
+    log "WARNING: ArcMenu icon settings not yet stable (attempt $attempt/$max_attempts)"
+    sleep 2
+  done
+
+  log "WARNING: ArcMenu icon settings could not be fully verified after $max_attempts attempts"
+  return 1
+}
+
 # === Request sudo once and keep it alive for the entire script ===
 color_echo "yellow" "🔑 Please enter your password once to authorize the setup:"
 sudo -v
@@ -97,11 +165,13 @@ fi
 if [ -f "$ARC_CONF" ]; then
   color_echo "yellow" "Updating ArcMenu config for current user home directory..."
   ARC_CONF_TMP="/tmp/Arc_Menu_Win_tmp"
-  sed "s|/home/[^/]*/\.arc_icon\.png|$ACTUAL_HOME/.arc_icon.png|g" "$ARC_CONF" > "$ARC_CONF_TMP"
+  sed "s|/home/[^/]*/\.arc_icon\.png|$ARC_ICON_PATH|g" "$ARC_CONF" > "$ARC_CONF_TMP"
   color_echo "yellow" "Loading ArcMenu config..."
   dconf load /org/gnome/shell/extensions/arcmenu/ < "$ARC_CONF_TMP"
   rm -f "$ARC_CONF_TMP"
   log "ArcMenu config loaded"
+
+  force_arcmenu_icon_configuration || true
 else
   log "WARNING: Arc_Menu_Win config not found at $ARC_CONF"
   color_echo "yellow" "⚠️  ArcMenu config not found, skipping."
@@ -184,6 +254,12 @@ gnome-extensions enable arcmenu@arcmenu.com \
   && log "ArcMenu re-enabled (second pass)" \
   || log "WARNING: Could not re-enable ArcMenu on second pass"
 
+# Re-apply icon settings while ArcMenu is live; v69.x may overwrite them during init
+sleep 3
+force_arcmenu_icon_configuration || true
+sleep 2
+force_arcmenu_icon_configuration || true
+
 color_echo "green" "✅ Extensions enabled."
 
 # =============================================================================
@@ -198,7 +274,7 @@ log "Window buttons configured"
 
 # --- Taskbar / Pinned Apps ---
 color_echo "yellow" "Setting pinned apps..."
-gsettings set org.gnome.shell favorite-apps "['org.mozilla.firefox.desktop', 'org.gnome.Nautilus.desktop', 'com.slack.Slack.desktop', 'org.mozilla.Thunderbird.desktop', 'org.remmina.Remmina.desktop']"
+gsettings set org.gnome.shell favorite-apps "['org.mozilla.firefox.desktop', 'org.gnome.Nautilus.desktop', 'com.slack.Slack.desktop', 'org.mozilla.Thunderbird.desktop', 'org.remmina.Remmina.desktop', 'org.libreoffice.LibreOffice.desktop', 'org.gnome.Software.desktop']"
 log "Pinned apps set"
 
 # --- Locale & Keyboard ---
@@ -269,8 +345,10 @@ systemctl --user start gnome-remote-desktop.service 2>/dev/null || true
 
 gsettings set org.gnome.desktop.remote-desktop.rdp enable true
 gsettings set org.gnome.desktop.remote-desktop.rdp view-only false
-gsettings set org.gnome.desktop.remote-desktop.rdp prompt-enabled false
-gsettings set org.gnome.desktop.remote-desktop.rdp authentication-methods "['password']"
+# authentication-methods was removed from the GSettings schema in GNOME 46+;
+# it is now configured exclusively via grdctl — suppress the error gracefully.
+gsettings set org.gnome.desktop.remote-desktop.rdp authentication-methods "['password']" 2>/dev/null \
+  || log "INFO: authentication-methods key not available in this GNOME version (GNOME 46+) - skipping"
 
 # Generate TLS certificate for RDP if not already present
 RDP_CERT_DIR="$ACTUAL_HOME/.local/share/gnome-remote-desktop/certificates"
