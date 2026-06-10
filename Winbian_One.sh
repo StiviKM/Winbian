@@ -83,9 +83,9 @@ log_section "Flatpak Setup"
 
 color_echo "yellow" "Installing Flatpak and setting up Flathub..."
 sudo apt install -y flatpak
-flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-sudo flatpak repair
-flatpak update -y
+sudo flatpak remote-add --system --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+curl -fsSL https://dl.flathub.org/repo/flathub.gpg | sudo flatpak remote-modify --system --gpg-import=- flathub
+sudo flatpak update --system -y
 log "Flathub configured"
 
 color_echo "green" "✅ Flatpak setup complete."
@@ -228,23 +228,25 @@ color_echo "green" "✅ Core packages installed."
 log_section "Installing Flatpak Applications"
 
 color_echo "yellow" "Installing Thunderbird..."
-flatpak install -y flathub org.mozilla.Thunderbird
+sudo flatpak install --system -y flathub org.mozilla.Thunderbird
 log "Thunderbird installed"
 
 color_echo "yellow" "Installing LibreOffice..."
-flatpak install -y flathub org.libreoffice.LibreOffice
+sudo flatpak install --system -y flathub org.libreoffice.LibreOffice
+sudo flatpak install --system -y --reinstall org.freedesktop.Platform.Locale/x86_64/24.08 || log "WARNING: LibreOffice locale platform reinstall failed"
+sudo flatpak install --system -y --reinstall org.libreoffice.LibreOffice.Locale || log "WARNING: LibreOffice locale reinstall failed"
 log "LibreOffice installed"
 
 color_echo "yellow" "Installing Flatseal..."
-flatpak install -y flathub com.github.tchx84.Flatseal
+sudo flatpak install --system -y flathub com.github.tchx84.Flatseal
 log "Flatseal installed"
 
 color_echo "yellow" "Installing Extension Manager..."
-flatpak install -y flathub com.mattjakeman.ExtensionManager
+sudo flatpak install --system -y flathub com.mattjakeman.ExtensionManager
 log "Extension Manager installed"
 
 color_echo "yellow" "Installing Slack..."
-flatpak install -y flathub com.slack.Slack
+sudo flatpak install --system -y flathub com.slack.Slack
 log "Slack installed"
 
 color_echo "green" "✅ Flatpak applications installed."
@@ -256,29 +258,35 @@ log_section "Installing NoMachine"
 
 color_echo "yellow" "Fetching latest NoMachine DEB URL..."
 
-NX_URL=$(curl -s "https://www.nomachine.com/download/download&id=1" \
-  | grep -oP 'https://download\.nomachine\.com/download/[^"]+amd64\.deb' \
-  | head -1)
-
-if [ -z "$NX_URL" ]; then
-  NX_URL=$(curl -s "https://www.nomachine.com/download" \
-    | grep -oP 'https://download\.nomachine\.com/download/[^"]+amd64\.deb' \
+NX_URL=""
+for NX_PAGE in \
+  "https://www.nomachine.com/download/linux&id=1" \
+  "https://www.nomachine.com/download/download&id=1" \
+  "https://www.nomachine.com/download"
+do
+  NX_URL=$(curl -sL --max-time 15 "$NX_PAGE" \
+    | grep -oP 'https://download\.nomachine\.com/download/[^"'\'' ]+amd64\.deb' \
     | head -1)
-fi
+  [ -n "$NX_URL" ] && break
+done
 
 if [ -z "$NX_URL" ]; then
-  log "WARNING: Could not dynamically fetch NoMachine URL, using known latest version"
-  NX_URL="https://download.nomachine.com/download/9.3/Linux/nomachine_9.3.7_1_amd64.deb"
+  log "ERROR: Could not find NoMachine download URL - skipping"
+  color_echo "red" "❌ NoMachine: could not detect download URL. Install manually from https://www.nomachine.com/download"
+else
+  log "NoMachine download URL: $NX_URL"
+  NX_DEB="/tmp/nomachine_latest_amd64.deb"
+  if wget --max-redirect=3 -O "$NX_DEB" "$NX_URL" && dpkg-deb --info "$NX_DEB" >/dev/null 2>&1; then
+    sudo apt install -y "$NX_DEB"
+    rm -f "$NX_DEB"
+    log "NoMachine installed"
+    color_echo "green" "✅ NoMachine installed."
+  else
+    rm -f "$NX_DEB"
+    log "ERROR: NoMachine download failed or file is not a valid DEB - skipping"
+    color_echo "red" "❌ NoMachine: download failed or not a valid DEB. Install manually from https://www.nomachine.com/download"
+  fi
 fi
-
-log "NoMachine download URL: $NX_URL"
-NX_DEB="/tmp/nomachine_latest_amd64.deb"
-wget -O "$NX_DEB" "$NX_URL"
-sudo apt install -y "$NX_DEB"
-rm -f "$NX_DEB"
-log "NoMachine installed"
-
-color_echo "green" "✅ NoMachine installed."
 
 # =============================================================================
 # SECTION 10: Install ZeroTier
@@ -374,8 +382,13 @@ sudo apt install -y zsh zsh-autosuggestions zsh-syntax-highlighting
 log "ZSH packages installed"
 
 color_echo "yellow" "Installing Oh My ZSH..."
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-log "Oh My ZSH installed"
+if [ -d "$ACTUAL_HOME/.oh-my-zsh" ]; then
+  log "Oh My ZSH already installed, skipping"
+  color_echo "yellow" "⚠️  Oh My ZSH already present, skipping install."
+else
+  sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+  log "Oh My ZSH installed"
+fi
 
 color_echo "yellow" "Installing ZSH plugins..."
 
@@ -414,33 +427,7 @@ log "Default shell changed to ZSH for $ACTUAL_USER"
 color_echo "green" "✅ ZSH and Oh My ZSH installed."
 
 # =============================================================================
-# SECTION 13: Install Fonts
-# =============================================================================
-log_section "Installing Fonts"
-
-FONTS_DIR="$ACTUAL_HOME/.local/share/fonts"
-mkdir -p "$FONTS_DIR/windows" "$FONTS_DIR/google"
-
-color_echo "yellow" "Installing Microsoft Windows fonts..."
-wget -O /tmp/winfonts.zip https://mktr.sbs/fonts
-unzip -o /tmp/winfonts.zip -d "$FONTS_DIR/windows"
-rm -f /tmp/winfonts.zip
-log "Windows fonts installed"
-
-color_echo "yellow" "Installing Google Fonts (this may take a while)..."
-wget -O /tmp/google-fonts.zip https://github.com/google/fonts/archive/main.zip
-unzip -o /tmp/google-fonts.zip "*.ttf" "*.otf" -d "$FONTS_DIR/google" 2>/dev/null \
-  || unzip -o /tmp/google-fonts.zip -d "$FONTS_DIR/google"
-rm -f /tmp/google-fonts.zip
-log "Google Fonts installed"
-
-fc-cache -fv
-log "Font cache updated"
-
-color_echo "green" "✅ Fonts installed."
-
-# =============================================================================
-# SECTION 14: Schedule Winbian_Two.sh After Reboot
+# SECTION 13: Schedule Winbian_Two.sh After Reboot
 # =============================================================================
 log_section "Scheduling Stage 2"
 
